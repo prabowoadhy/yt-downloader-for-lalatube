@@ -51,15 +51,27 @@ python main.py
 
 ## Build Executable (.exe)
 
+Cara paling mudah — jalankan `build.bat` (double-click), atau manual:
+
 ```bash
-# Pastikan dependencies build terinstall
+call .venv\Scripts\activate
 pip install pyinstaller
 
-# Build
-pyinstaller --clean -y pyproject.toml
+.venv\Scripts\pyinstaller.exe --noconfirm --clean --onefile --windowed ^
+    --name "YT-Downloader" ^
+    --icon "assets\icon.ico" ^
+    --add-data "config\default_config.yaml;config" ^
+    --collect-submodules yt_dlp ^
+    --exclude-module tkinter ^
+    --exclude-module matplotlib ^
+    --exclude-module numpy ^
+    main.py
 
 # Output: dist/YT-Downloader.exe
 ```
+
+Setelah jadi `.exe`: buat `config.yaml` di folder yang sama dengan `YT-Downloader.exe`
+(isi `paths.main_folder`), lalu double-click exe.
 
 ## Config (config.yaml)
 
