@@ -17,7 +17,7 @@ Aplikasi desktop Windows untuk download video YouTube dengan aturan ketat:
 ## Unduh Aplikasi (.exe)
 
 **Siap pakai (tanpa install Python):**
-https://github.com/prabowoadhy/yt-downloader-for-lalatube/releases/download/v1.0.1/YT-Downloader.exe
+https://github.com/prabowoadhy/yt-downloader-for-lalatube/releases/download/v1.0.2/YT-Downloader.exe
 
 Langkah:
 1. Unduh `YT-Downloader.exe` (55 MB) — taruh di folder tetap, mis. `D:\Tools\YT-Downloader\`
