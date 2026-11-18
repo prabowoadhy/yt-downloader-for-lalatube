@@ -56,6 +56,8 @@ DEFAULT_CONFIG = {
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "cookies_file": "",
         "proxy": "",
+        "js_runtimes": "",
+        "remote_components": "ejs:github",
         "sponsorblock_remove": False,
         "embed_metadata": True,
         "embed_thumbnail": True,

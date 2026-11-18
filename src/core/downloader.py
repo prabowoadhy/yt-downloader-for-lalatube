@@ -128,6 +128,7 @@ class YTDLPDownloader:
             self.ytdlp, "--flat-playlist", "--no-warnings",
             "--ignore-errors", "--no-playlist" if "/watch" in url else "--yes-playlist",
             "--print", "%(id)s\t%(duration)s\t%(title)s",
+            *self._js_runtime_args(),
         ]
         if self.cfg["advanced"]["cookies_file"]:
             args.extend(["--cookies", self.cfg["advanced"]["cookies_file"]])
@@ -234,6 +235,11 @@ class YTDLPDownloader:
 
             if result.returncode != 0 or not video_file.exists():
                 err = result.stderr[-500:] if result.stderr else "Unknown error"
+                if ("not available" in err.lower()
+                        and not (self.cfg["advanced"].get("js_runtimes") or self._detect_js_runtime())):
+                    err += ("\nHINT: yt-dlp butuh JS runtime (node/deno/bun). "
+                            "Pasang Node.js, atau isi advanced.js_runtimes di config.yaml "
+                            "(contoh: node:C:/Program Files/nodejs/node.exe).")
                 self.err_log.write(vid, url, err, "yt-dlp download")
                 return DownloadResult(success=False, video_id=vid, title=title, channel=channel, error=f"Download gagal: {err}")
 
@@ -306,11 +312,43 @@ class YTDLPDownloader:
             self.err_log.write(vid, url, str(e), "exception")
             return DownloadResult(success=False, video_id=vid, error=str(e))
 
+    def _js_runtime_args(self) -> List[str]:
+        """
+        Argumen JS runtime (EJS) — WAJIB sejak yt-dlp 2025:
+        tanpa runtime, signature YouTube gagal -> 'This video is not available'.
+        """
+        args = []
+        jr = (self.cfg["advanced"].get("js_runtimes") or "").strip()
+        if not jr:
+            jr = self._detect_js_runtime()
+        if jr:
+            args += ["--js-runtimes", jr]
+        rc = (self.cfg["advanced"].get("remote_components") or "").strip()
+        if rc:
+            args += ["--remote-components", rc]
+        return args
+
+    @staticmethod
+    def _detect_js_runtime() -> str:
+        """Cari node/deno/bun yang tersedia di mesin ini."""
+        import shutil
+        candidates = [
+            ("node", "C:/Users/Public/node-ejs.exe"),
+        ]
+        for name, fixed in candidates:
+            if fixed and Path(fixed).exists():
+                return f"{name}:{fixed}"
+        for name in ("node", "deno", "bun", "quickjs"):
+            found = shutil.which(name)
+            if found:
+                return f"{name}:{found}"
+        return ""
+
     def _get_video_info(self, url: str, vid: str = "") -> Optional[Dict]:
         """Ambil metadata video via yt-dlp --dump-json."""
         args = [
             self.ytdlp, "--no-warnings", "--dump-json",
-            "--no-playlist", url
+            "--no-playlist", *self._js_runtime_args(), url
         ]
         # Add cookies if configured
         if self.cfg["advanced"]["cookies_file"]:
@@ -353,6 +391,7 @@ class YTDLPDownloader:
             "-f", fmt,
             "--merge-output-format", "mp4",
             "-o", str(video_out),
+            *self._js_runtime_args(),
             "--write-thumbnail",
             "--convert-thumbnails", self.cfg["download"]["thumbnail_format"],
             "--embed-metadata" if self.cfg["advanced"]["embed_metadata"] else "--no-embed-metadata",
@@ -388,7 +427,10 @@ class YTDLPDownloader:
             return None
         try:
             data = json.loads(result.stdout)
-            v = next((s for s in data["streams"] if s["codec_type"] == "video"), None)
+            # Abaikan cover art (mjpeg/png) — pilih stream video utama
+            vids = [s for s in data["streams"] if s.get("codec_type") == "video"]
+            vids = [s for s in vids if s.get("codec_name") not in ("mjpeg", "png", "bmp", "gif")] or vids
+            v = max(vids, key=lambda s: (s.get("height") or 0) * (s.get("width") or 0)) if vids else None
             a = next((s for s in data["streams"] if s["codec_type"] == "audio"), None)
             if not v:
                 return None

@@ -114,6 +114,15 @@ advanced:
   # User-Agent untuk request
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
+  # JS runtime untuk yt-dlp (WAJIB sejak 2025; tanpa ini banyak video
+  # YouTube gagal dengan "This video is not available").
+  # Kosongkan = auto-deteksi (node/deno/bun di PATH atau node-ejs.exe).
+  # Contoh: "node:C:/Program Files/nodejs/node.exe"  atau  "deno:C:/Tools/deno.exe"
+  js_runtimes: ""
+
+  # Komponen tambahan yt-dlp (EJS challenge solver)
+  remote_components: "ejs:github"
+
   # Cookies file (untuk video age-restricted, opsional)
   cookies_file: ""
 
