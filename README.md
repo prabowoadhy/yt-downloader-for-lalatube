@@ -7,6 +7,12 @@ Aplikasi desktop Windows untuk download video YouTube dengan aturan ketat:
 - **Folder Channel**: Nama = nama channel YouTube
 - **Nama File Video**: Judul YouTube persis (hanya sanitasi karakter Windows)
 - **Anti Double-Download**: Log JSONL, skip otomatis yang sudah ada
+- **Tanpa jendela CMD**: semua proses yt-dlp/ffmpeg berjalan tersembunyi
+  (`CREATE_NO_WINDOW`) — tidak ada window yang merebut fokus
+- **Konsol tersemat**: output mentah yt-dlp/ffmpeg tampil di sidebar kanan
+  aplikasi (tombol **▤ Konsol** untuk sembunyikan/tampilkan)
+- **Keluar aman**: dialog konfirmasi saat menutup; proses yt-dlp/ffmpeg
+  dihentikan berikut anak-anaknya (`taskkill /T`), tidak ada proses tertinggal
 
 ## Unduh Aplikasi (.exe)
 

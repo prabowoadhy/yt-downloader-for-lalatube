@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QTextEdit, QPushButton, QProgressBar,
     QFileDialog, QMessageBox, QGroupBox, QFormLayout, QSpinBox,
     QCheckBox, QComboBox, QTabWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSplitter, QFrame, QScrollArea, QSizePolicy
+    QHeaderView, QSplitter, QFrame, QScrollArea, QSizePolicy,
+    QDockWidget, QPlainTextEdit
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSettings
 from PySide6.QtGui import QFont, QIcon, QTextCursor, QColor
@@ -29,6 +30,7 @@ class WorkerThread(QThread):
     """Background download thread."""
     progress = Signal(str, str)  # msg, level
     progress_count = Signal(int, int)  # index, total
+    console_line = Signal(str)  # baris output mentah yt-dlp
     finished_one = Signal(object)  # DownloadResult
     all_finished = Signal(list)  # List[DownloadResult]
     error = Signal(str)
@@ -38,16 +40,21 @@ class WorkerThread(QThread):
         self.urls = urls
         self.config = config
         self._stop = False
+        self.downloader: Optional[YTDLPDownloader] = None
 
     def run(self):
         try:
-            downloader = YTDLPDownloader(self.config, progress_cb=self._emit_progress)
+            self.downloader = YTDLPDownloader(
+                self.config,
+                progress_cb=self._emit_progress,
+                console_cb=self.console_line.emit,
+            )
             # 1. Expand channel/playlist -> video IDs
             ids, seen = [], set()
             for url in self.urls:
                 if self._stop:
                     break
-                for vid in downloader.expand_input(url):
+                for vid in self.downloader.expand_input(url):
                     if vid and vid not in seen:
                         seen.add(vid)
                         ids.append(vid)
@@ -59,7 +66,7 @@ class WorkerThread(QThread):
                 if self._stop:
                     break
                 self.progress_count.emit(i, total)
-                res = downloader.download_single(f"https://www.youtube.com/watch?v={vid}")
+                res = self.downloader.download_single(f"https://www.youtube.com/watch?v={vid}")
                 results.append(res)
                 self.finished_one.emit(res)
             self.all_finished.emit(results)
@@ -70,7 +77,10 @@ class WorkerThread(QThread):
         self.progress.emit(msg, level)
 
     def stop(self):
+        """Hentikan: minta berhenti + matikan proses yt-dlp/ffmpeg yang jalan."""
         self._stop = True
+        if self.downloader:
+            self.downloader.stop()
 
 
 class ConfigDialog(QWidget):
@@ -342,11 +352,32 @@ class MainWindow(QMainWindow):
         btn_cfg.clicked.connect(self._open_config)
         btn_refresh = QPushButton("🔄 Refresh Log")
         btn_refresh.clicked.connect(self._refresh_log_table)
+        self.btn_console = QPushButton("▤ Konsol")
+        self.btn_console.setCheckable(True)
+        self.btn_console.setChecked(True)
+        self.btn_console.setToolTip("Tampilkan/sembunyikan konsol output yt-dlp & ffmpeg")
         top.addWidget(self.lbl_config)
         top.addStretch()
+        top.addWidget(self.btn_console)
         top.addWidget(btn_cfg)
         top.addWidget(btn_refresh)
         main_layout.addLayout(top)
+
+        # --- Konsol tersemat (sidebar kanan): output yt-dlp/ffmpeg ---
+        self.console = QPlainTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setMaximumBlockCount(5000)
+        self.console.setFont(QFont("Consolas", 9))
+        self.console.setPlaceholderText(
+            "Output yt-dlp / ffmpeg muncul di sini — tidak ada jendela cmd terpisah.")
+        self.console_dock = QDockWidget("Konsol (yt-dlp / ffmpeg)", self)
+        self.console_dock.setObjectName("console_dock")
+        self.console_dock.setWidget(self.console)
+        self.console_dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.console_dock)
+        self.console_dock.visibilityChanged.connect(self.btn_console.setChecked)
+        self.btn_console.toggled.connect(self.console_dock.setVisible)
+        self.resizeDocks([self.console_dock], [340], Qt.Horizontal)
 
         # Splitter: Input + Progress | Log Table
         splitter = QSplitter(Qt.Vertical)
@@ -470,6 +501,7 @@ class MainWindow(QMainWindow):
         self.worker = WorkerThread(urls, self.config)
         self.worker.progress.connect(self._on_progress)
         self.worker.progress_count.connect(self._on_progress_count)
+        self.worker.console_line.connect(self._on_console_line)
         self.worker.finished_one.connect(self._on_finished_one)
         self.worker.all_finished.connect(self._on_all_finished)
         self.worker.error.connect(self._on_error)
@@ -489,6 +521,12 @@ class MainWindow(QMainWindow):
     def _on_progress_count(self, index: int, total: int):
         if total > 0:
             self.progress_bar.setValue(int(index * 100 / total))
+
+    def _on_console_line(self, line: str):
+        """Output mentah yt-dlp/ffmpeg -> konsol sidebar."""
+        self.console.appendPlainText(line)
+        sb = self.console.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     def _on_finished_one(self, res: DownloadResult):
         self.results.append(res)
@@ -537,9 +575,43 @@ class MainWindow(QMainWindow):
             self.lbl_stats.setText(f"Log error: {e}")
 
     def closeEvent(self, event):
-        if self.worker and self.worker.isRunning():
-            self.worker.stop()
-            self.worker.wait(3000)
+        """Konfirmasi keluar + pastikan tidak ada proses yt-dlp/ffmpeg yang tertinggal."""
+        running = bool(self.worker and self.worker.isRunning())
+
+        # Penutupan programatik (mis. quit dari kode/test) tidak perlu dialog
+        if not getattr(self, "_force_close", False):
+            if running:
+                text = ("Masih ada proses download yang berjalan.\n\n"
+                        "Tutup aplikasi dan HENTIKAN proses yt-dlp/ffmpeg sekarang?\n"
+                        "Unduhan yang belum selesai harus diulang.")
+            else:
+                text = "Tutup aplikasi YT Downloader?"
+            reply = QMessageBox.question(
+                self, "Konfirmasi Keluar", text,
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                event.ignore()
+                return
+
+        if running:
+            self._log("Menghentikan download & proses anak...", "WARNING")
+            try:
+                self.worker.stop()          # minta berhenti + kill yt-dlp/ffmpeg
+            except Exception:
+                pass
+            if not self.worker.wait(8000):
+                self.worker.terminate()
+                self.worker.wait(2000)
+
+        # Sisa proses (kalau ada) dimatikan agar tidak jadi zombie
+        try:
+            if self.worker and self.worker.downloader:
+                n = self.worker.downloader.kill_all()
+                if n:
+                    self._log(f"{n} proses dihentikan.", "WARNING")
+        except Exception:
+            pass
+
         event.accept()
 
 

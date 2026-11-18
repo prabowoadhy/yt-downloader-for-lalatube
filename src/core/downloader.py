@@ -4,6 +4,7 @@ Mengimplementasikan semua aturan: H.264 720p, thumbnail, avatar, naming, log.
 """
 import subprocess
 import json
+import os
 import threading
 import re
 from pathlib import Path
@@ -14,6 +15,28 @@ from datetime import datetime
 from .config import load_config
 from .naming import sanitize_filename, sanitize_folder_name, extract_video_id
 from .logger import DownloadLog, VideoRecord, ErrorLog
+
+
+# ============================================================
+# Windows: jalankan proses TANPA jendela konsol
+# (tanpa ini, tiap panggilan yt-dlp/ffmpeg membuka cmd baru
+#  yang merebut fokus dan menutupi layar pengguna)
+# ============================================================
+CREATE_NO_WINDOW = 0x08000000
+
+
+def hidden_kwargs() -> dict:
+    if os.name != "nt":
+        return {}
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    return {"creationflags": CREATE_NO_WINDOW, "startupinfo": si}
+
+
+def run_hidden(args, **kwargs) -> subprocess.CompletedProcess:
+    """subprocess.run() tanpa jendela konsol."""
+    return subprocess.run(args, **hidden_kwargs(), **kwargs)
 
 
 @dataclass
@@ -44,12 +67,16 @@ class YTDLPDownloader:
     - Log: JSONL
     """
 
-    def __init__(self, config: Dict[str, Any], progress_cb: Optional[Callable] = None):
+    def __init__(self, config: Dict[str, Any], progress_cb: Optional[Callable] = None,
+                 console_cb: Optional[Callable[[str], None]] = None):
         self.cfg = config
         self.progress_cb = progress_cb
+        self.console_cb = console_cb   # baris output mentah yt-dlp -> konsol GUI
         self.log = DownloadLog(Path(config["logging"]["log_file"]))
         self.err_log = ErrorLog(Path(config["logging"]["error_log"]))
         self._stop = False
+        self._procs = set()          # proses yt-dlp/ffmpeg yang sedang jalan
+        self._proc_lock = threading.Lock()
 
         # Resolve executables
         self.ytdlp = self._find_exe("ytdlp_path", "yt-dlp")
@@ -81,8 +108,81 @@ class YTDLPDownloader:
             self.progress_cb(msg, level)
         print(f"[{level}] {msg}")
 
+    def _run_stream(self, args: List[str], timeout: int) -> "subprocess.CompletedProcess":
+        """
+        Jalankan proses TANPA jendela konsol, sambil mengalirkan setiap
+        baris output ke console_cb (konsol di dalam aplikasi).
+        Proses dicatat agar bisa dimatikan saat Stop / aplikasi ditutup.
+        """
+        if self._stop:
+            return subprocess.CompletedProcess(args, -1, "STOPPED", "")
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+            **hidden_kwargs(),
+        )
+        with self._proc_lock:
+            self._procs.add(proc)
+
+        lines: List[str] = []
+
+        def reader():
+            try:
+                for raw in proc.stdout:
+                    line = raw.rstrip("\r\n")
+                    if not line:
+                        continue
+                    lines.append(line)
+                    if self.console_cb:
+                        try:
+                            self.console_cb(line)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self._kill_proc(proc)
+            raise
+        finally:
+            with self._proc_lock:
+                self._procs.discard(proc)
+        t.join(3)
+        return subprocess.CompletedProcess(args, proc.returncode, "\n".join(lines), "")
+
+    @staticmethod
+    def _kill_proc(proc) -> None:
+        """Matikan proses + anak-anaknya (yt-dlp memanggil ffmpeg)."""
+        if os.name == "nt":
+            try:
+                run_hidden(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=15)
+                return
+            except Exception:
+                pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    def kill_all(self) -> int:
+        """Matikan semua proses anak (yt-dlp/ffmpeg) yang masih jalan."""
+        with self._proc_lock:
+            procs = list(self._procs)
+            self._procs.clear()
+        for p in procs:
+            self._kill_proc(p)
+        return len(procs)
+
     def stop(self) -> None:
         self._stop = True
+        self.kill_all()
 
     def download_urls(self, urls: List[str]) -> List[DownloadResult]:
         """Download multiple URL (video / channel / playlist), expand dulu."""
@@ -137,7 +237,7 @@ class YTDLPDownloader:
         args.append(url)
 
         try:
-            r = subprocess.run(args, capture_output=True, text=True,
+            r = run_hidden(args, capture_output=True, text=True,
                                timeout=self.cfg["behavior"]["timeout"])
         except subprocess.TimeoutExpired:
             self.err_log.write("", url, "Timeout saat ambil daftar playlist", "expand_input")
@@ -225,16 +325,21 @@ class YTDLPDownloader:
             # 3. Download video + thumbnail
             self._emit(f"  Download video: {video_name[:50]}...")
             ytdlp_args = self._build_ytdlp_args(url, video_file, thumb_file)
-            result = subprocess.run(ytdlp_args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=self.cfg["behavior"]["timeout"])
+            result = self._run_stream(ytdlp_args, self.cfg["behavior"]["timeout"])
 
             if result.returncode != 0:
+                # Dibatalkan pengguna? jangan coba fallback
+                if self._stop:
+                    self._emit("  Download dibatalkan.", "WARNING")
+                    return DownloadResult(success=False, video_id=vid, title=title,
+                                          channel=channel, error="STOPPED (dibatalkan)")
                 # Coba fallback format
                 self._emit(f"  Format utama gagal, coba fallback...", "WARNING")
                 ytdlp_args = self._build_ytdlp_args(url, video_file, thumb_file, fallback=True)
-                result = subprocess.run(ytdlp_args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=self.cfg["behavior"]["timeout"])
+                result = self._run_stream(ytdlp_args, self.cfg["behavior"]["timeout"])
 
             if result.returncode != 0 or not video_file.exists():
-                err = result.stderr[-500:] if result.stderr else "Unknown error"
+                err = (result.stderr or result.stdout or "Unknown error")[-800:]
                 if ("not available" in err.lower()
                         and not (self.cfg["advanced"].get("js_runtimes") or self._detect_js_runtime())):
                     err += ("\nHINT: yt-dlp butuh JS runtime (node/deno/bun). "
@@ -356,7 +461,7 @@ class YTDLPDownloader:
         if self.cfg["advanced"]["proxy"]:
             args.extend(["--proxy", self.cfg["advanced"]["proxy"]])
 
-        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        result = run_hidden(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         if result.returncode != 0:
             err = result.stderr[-300:] if result.stderr else "Unknown error"
             self._emit(f"  yt-dlp error: {err}", "ERROR")
@@ -392,6 +497,7 @@ class YTDLPDownloader:
             "--merge-output-format", "mp4",
             "-o", str(video_out),
             *self._js_runtime_args(),
+            "--newline",
             "--write-thumbnail",
             "--convert-thumbnails", self.cfg["download"]["thumbnail_format"],
             "--embed-metadata" if self.cfg["advanced"]["embed_metadata"] else "--no-embed-metadata",
@@ -422,7 +528,7 @@ class YTDLPDownloader:
             "-show_streams", "-show_format",
             str(path)
         ]
-        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        result = run_hidden(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         if result.returncode != 0:
             return None
         try:
@@ -460,7 +566,7 @@ class YTDLPDownloader:
             "-movflags", "+faststart",
             str(tmp)
         ]
-        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=self.cfg["behavior"]["timeout"])
+        result = run_hidden(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=self.cfg["behavior"]["timeout"])
         if result.returncode != 0 or not tmp.exists():
             if tmp.exists():
                 tmp.unlink()
@@ -492,7 +598,7 @@ class YTDLPDownloader:
                     c.replace(target)
                 return target
             if suf in (".png", ".webp") and c.stat().st_size > 1000:
-                r = subprocess.run([self.ffmpeg, "-y", "-i", str(c), "-q:v", "2", str(target)],
+                r = run_hidden([self.ffmpeg, "-y", "-i", str(c), "-q:v", "2", str(target)],
                                    capture_output=True, timeout=60)
                 if r.returncode == 0 and target.exists() and target.stat().st_size > 1000:
                     c.unlink(missing_ok=True)
@@ -500,7 +606,7 @@ class YTDLPDownloader:
 
         # 2) Tanpa ekstensi / ekstensi tak dikenal -> konversi via ffmpeg
         for c in cands:
-            r = subprocess.run([self.ffmpeg, "-y", "-i", str(c), "-q:v", "2", str(target)],
+            r = run_hidden([self.ffmpeg, "-y", "-i", str(c), "-q:v", "2", str(target)],
                                capture_output=True, timeout=60)
             if r.returncode == 0 and target.exists() and target.stat().st_size > 1000:
                 c.unlink(missing_ok=True)
@@ -548,7 +654,7 @@ class YTDLPDownloader:
             "-q:v", "2",
             str(thumb)
         ]
-        result = subprocess.run(args, capture_output=True, timeout=30)
+        result = run_hidden(args, capture_output=True, timeout=30)
         return result.returncode == 0 and thumb.exists()
 
     def _make_unique(self, path: Path) -> Path:
@@ -565,7 +671,7 @@ class YTDLPDownloader:
     def _get_version(self, tool: str) -> str:
         exe = self.ytdlp if tool == "yt-dlp" else self.ffmpeg
         try:
-            r = subprocess.run([exe, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+            r = run_hidden([exe, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
             return r.stdout.strip() if r.returncode == 0 else ""
         except Exception:
             return ""
