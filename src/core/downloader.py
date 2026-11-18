@@ -306,7 +306,7 @@ class YTDLPDownloader:
             self.err_log.write(vid, url, str(e), "exception")
             return DownloadResult(success=False, video_id=vid, error=str(e))
 
-    def _get_video_info(self, url: str) -> Optional[Dict]:
+    def _get_video_info(self, url: str, vid: str = "") -> Optional[Dict]:
         """Ambil metadata video via yt-dlp --dump-json."""
         args = [
             self.ytdlp, "--no-warnings", "--dump-json",
