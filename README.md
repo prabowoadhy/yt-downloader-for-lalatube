@@ -7,6 +7,8 @@ Aplikasi desktop Windows untuk download video YouTube dengan aturan ketat:
 - **Folder Channel**: Nama = nama channel YouTube
 - **Nama File Video**: Judul YouTube persis (hanya sanitasi karakter Windows)
 - **Anti Double-Download**: Log JSONL, skip otomatis yang sudah ada
+- **Catatan koleksi otomatis**: setiap unduhan sukses menambah baris ke
+  `<main_folder>/koleksi_video.txt` (dedupe berdasarkan video ID)
 - **Tanpa jendela CMD**: semua proses yt-dlp/ffmpeg berjalan tersembunyi
   (`CREATE_NO_WINDOW`) — tidak ada window yang merebut fokus
 - **Konsol tersemat**: output mentah yt-dlp/ffmpeg tampil di sidebar kanan
@@ -17,7 +19,7 @@ Aplikasi desktop Windows untuk download video YouTube dengan aturan ketat:
 ## Unduh Aplikasi (.exe)
 
 **Siap pakai (tanpa install Python):**
-https://github.com/prabowoadhy/yt-downloader-for-lalatube/releases/download/v1.0.2/YT-Downloader.exe
+https://github.com/prabowoadhy/yt-downloader-for-lalatube/releases/download/v1.0.3/YT-Downloader.exe
 
 Langkah:
 1. Unduh `YT-Downloader.exe` (55 MB) — taruh di folder tetap, mis. `D:\Tools\YT-Downloader\`
