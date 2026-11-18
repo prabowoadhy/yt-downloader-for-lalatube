@@ -399,6 +399,9 @@ class YTDLPDownloader:
             )
             self.log.add(rec)
 
+            # 7b. Sinkron ke catatan historis koleksi (kalau ada)
+            self._append_koleksi_txt(rec)
+
             self._emit(f"  SELESAI: {video_name[:50]} ({rec.size_mb:.1f} MB)")
             return DownloadResult(
                 success=True, video_id=vid, title=title, channel=channel,
@@ -575,6 +578,29 @@ class YTDLPDownloader:
         path.unlink()
         tmp.rename(path)
         return True
+
+    def _append_koleksi_txt(self, rec: VideoRecord) -> None:
+        """
+        Tambahkan satu baris ke <main_folder>/koleksi_video.txt
+        (catatan historis anti-double-download milik pengguna).
+        Format: FOLDER|FILENAME|VIDEO_ID|THUMB|SIZE_MB|DATE
+        """
+        try:
+            path = Path(self.cfg["paths"]["main_folder"]) / "koleksi_video.txt"
+            if not path.exists():
+                return
+            existing = path.read_text(encoding="utf-8", errors="replace")
+            if rec.video_id in existing:
+                return
+            line = (f"{rec.folder_name}|{rec.video_filename}|{rec.video_id}|"
+                    f"{'Y' if rec.thumbnail_filename else 'N'}|"
+                    f"{rec.size_mb:.2f}|{rec.download_date[:10]}")
+            with path.open("a", encoding="utf-8") as f:
+                if not existing.endswith("\n") and existing:
+                    f.write("\n")
+                f.write(line + "\n")
+        except Exception:
+            pass
 
     def _ensure_thumbnail(self, video: Path) -> Optional[Path]:
         """
