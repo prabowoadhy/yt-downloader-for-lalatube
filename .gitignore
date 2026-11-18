@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Config user (jangan commit config.yaml dengan path asli)
+config.yaml
+
+# Logs
+logs/
+*.log
+download_log.jsonl
+error_log.txt
+
+# OS
+Thumbs.db
+Desktop.ini

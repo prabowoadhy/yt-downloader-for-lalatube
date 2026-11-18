@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-downloader-app"
+version = "1.0.0"
+description = "YouTube Downloader for Windows - H.264 720p, thumbnail, avatar, anti-duplicate"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.6",
+    "PyYAML>=6.0",
+    "yt-dlp>=2024.1",
+]
+# Optional: untuk build exe
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# PyInstaller config
+[tool.pyinstaller]
+name = "YT-Downloader"
+onefile = true
+windowed = true
+icon = "assets/icon.ico"
+add-data = [
+    "config/default_config.yaml;config",
+]
+hidden-imports = [
+    "PySide6.QtCore",
+    "PySide6.QtWidgets",
+    "PySide6.QtGui",
+    "yaml",
+    "yt_dlp",
+]
+exclude-modules = [
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+    "tkinter",
+]
+upx = true
+upx-exclude = ["vcruntime140.dll"]

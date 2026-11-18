@@ -1,0 +1,129 @@
+# YT-Downloader-App Configuration
+# Salin file ini ke config.yaml dan sesuaikan
+
+# ============================================================
+# PATH UTAMA (wajib diisi)
+# ============================================================
+paths:
+  # Folder utama tempat subfolder channel akan dibuat
+  # Contoh: "D:/adip/Video Anak" atau "C:/Users/Nama/Downloads/YouTube"
+  main_folder: ""
+
+  # Folder temporary untuk file sementara (kosong = pakai %TEMP%)
+  temp_folder: ""
+
+  # Path ke yt-dlp executable (kosong = cari di PATH)
+  ytdlp_path: ""
+
+  # Path ke ffmpeg/ffprobe (kosong = cari di PATH)
+  ffmpeg_path: ""
+
+# ============================================================
+# SPESIFIKASI DOWNLOAD (sesuai aturan Anda)
+# ============================================================
+download:
+  # Format video: H.264 maksimal 720p
+  max_height: 720
+  video_codec: "h264"        # avc1
+  audio_codec: "aac"
+  audio_bitrate: "128k"
+  crf: 21                    # kualitas (18-23 bagus)
+  preset: "medium"           # ultrafast..veryslow
+
+  # Format thumbnail
+  thumbnail_format: "jpg"
+  thumbnail_quality: 90
+
+  # Avatar channel
+  download_avatar: true
+  avatar_format: "jpg"
+
+  # Batasan durasi (detik, 0 = tidak dibatasi)
+  max_duration: 1800         # 30 menit
+
+  # Lewati video yang sudah ada di log (anti double-download)
+  skip_existing: true
+
+  # Jumlah video per channel (0 = tidak dibatasi)
+  max_per_channel: 0
+
+  # Hanya ambil N video terbaru per channel (0 = semua)
+  newest_first: 0
+
+# ============================================================
+# NAMA FILE & FOLDER (wajib konsisten)
+# ============================================================
+naming:
+  # Nama folder channel = nama channel YouTube (wajib)
+  folder_equals_channel: true
+
+  # Nama file video = judul YouTube persis (sanitasi Windows saja)
+  video_equals_title: true
+
+  # Maksimal panjang nama file (karakter)
+  max_filename_len: 150
+
+  # Thumbnail: nama sama dengan video + .jpg
+  thumbnail_same_name: true
+
+  # Avatar: nama sama dengan folder channel + .jpg
+  avatar_same_as_folder: true
+
+# ============================================================
+# LOG & TRACKING
+# ============================================================
+logging:
+  # File log download (JSONL)
+  log_file: "download_log.jsonl"
+
+  # File log error
+  error_log: "error_log.txt"
+
+  # Level log: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+
+  # Simpan metadata lengkap per video
+  save_metadata: true
+
+# ============================================================
+# PERILAKU
+# ============================================================
+behavior:
+  # Hapus file sumber setelah re-encode (AV1/VP9 -> H.264)
+  delete_source_after_reencode: true
+
+  # Verifikasi codec setelah re-encode sebelum hapus sumber
+  verify_before_swap: true
+
+  # Paralel download (1-4, tergantung bandwidth)
+  parallel_downloads: 1
+
+  # Paralel re-encode (1 = aman untuk CPU)
+  parallel_reencode: 1
+
+  # Timeout per video (detik)
+  timeout: 600
+
+  # Lanjutkan kalau ada error (skip video bermasalah)
+  continue_on_error: true
+
+# ============================================================
+# ADVANCED (jarang diubah)
+# ============================================================
+advanced:
+  # User-Agent untuk request
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+  # Cookies file (untuk video age-restricted, opsional)
+  cookies_file: ""
+
+  # Proxy (opsional)
+  proxy: ""
+
+  # SponsorBlock: hapus sponsor/intro/outro (butuh yt-dlp terbaru)
+  sponsorblock_remove: false
+
+  # Embed metadata ke file MP4
+  embed_metadata: true
+  embed_thumbnail: true
+  embed_chapters: true
